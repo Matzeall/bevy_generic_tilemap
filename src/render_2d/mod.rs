@@ -3,7 +3,7 @@ use crate::{
         TileChangedMessage,
         resources::world_map::{GridType, WorldMap},
     },
-    render_2d::resources::RenderSettings2D,
+    render_2d::resources::{RenderSettings2D, TilemapAsset},
 };
 use bevy::{platform::collections::HashMap, prelude::*};
 
@@ -13,8 +13,8 @@ mod systems;
 pub struct Render2dTilemapPlugin;
 
 impl Plugin for Render2dTilemapPlugin {
-    fn build(&self, _app: &mut App) {
-        _app.init_resource::<TileEntities>()
+    fn build(&self, app: &mut App) {
+        app.init_resource::<TileEntities>()
             .add_systems(Update, refresh_dirty_tiles);
     }
 }
@@ -26,13 +26,14 @@ fn refresh_dirty_tiles(
     mut commands: Commands,
     world_map: Res<WorldMap>,
     settings: Res<RenderSettings2D>,
+    tilemap_asset: Res<TilemapAsset>,
     mut tile_entities: ResMut<TileEntities>,
     mut messages: MessageReader<TileChangedMessage>,
+    mut sprite_query: Query<&mut Sprite>,
 ) {
     for message in messages.read() {
-        let coord = message.coord;
+        let coord = message.coord; // the dirty coord
 
-        // Fetch the logical data
         let Some(idx) = world_map.coord_to_index(coord) else {
             continue;
         };
@@ -45,30 +46,30 @@ fn refresh_dirty_tiles(
                 coord.y as f32 * settings.tile_pixel_size,
             ),
             GridType::Hexagonal(orientation) => {
-                // Skew layout coordinates for Axial Hex calculations
-                let x =
-                    32.0 * (3.0f32.sqrt() * coord.x as f32 + 3.0f32.sqrt() / 2.0 * coord.y as f32);
-                let y = 32.0 * (3.0 / 2.0 * coord.y as f32);
+                // skew layout coordinates for hex calculations
+                let x = settings.tile_pixel_size
+                    * (3.0f32.sqrt() * coord.x as f32 + 3.0f32.sqrt() / 2.0 * coord.y as f32);
+                let y = settings.tile_pixel_size * (3.0 / 2.0 * coord.y as f32);
                 Vec2::new(x, y)
             }
         };
 
+        // render the tile
         if let Some(&entity) = tile_entities.0.get(&coord) {
-            commands.entity(entity).insert(TextureAtlas {
-                index: logical_tile.tile_type as usize,
-                ..default()
-            });
+            if let Ok(mut sprite) = sprite_query.get_mut(entity) {
+                if let Some(atlas) = &mut sprite.texture_atlas {
+                    atlas.index = logical_tile.tile_type as usize;
+                }
+            }
         } else {
-            // Spawn a brand new visual tile entity
             let entity = commands
                 .spawn((
                     Sprite {
-                        // Assuming you passed a texture handle to your assets registry
-                        image: asset_server_handle_fallback(),
-                        ..default()
-                    },
-                    TextureAtlas {
-                        index: logical_tile.tile_type as usize,
+                        image: tilemap_asset.image.clone(),
+                        texture_atlas: Some(TextureAtlas {
+                            layout: tilemap_asset.layout.clone(),
+                            index: logical_tile.tile_type as usize,
+                        }),
                         ..default()
                     },
                     Transform::from_translation(world_pos.extend(0.0)),

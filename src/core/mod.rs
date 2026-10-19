@@ -1,7 +1,5 @@
 use bevy::prelude::*;
 
-use crate::core::resources::world_map::WorldMap;
-
 pub mod resources;
 pub mod systems;
 
